@@ -46,7 +46,7 @@ start(_Host, Opts) ->
       Port = gen_mod:get_opt(port, Opts, 4560),
       MaxSessions = 10,
       Timeout = 50,
-      Handler = {mod_xmlrpc_ext, handler},
+      Handler = {mod_rostbeef, handler},
       State = started,
       Ip = gen_mod:get_opt(ip, Opts, all), 
       {ok, Pid} = xmlrpc:start_link(Ip, Port, MaxSessions, Timeout, Handler, State), %% start process
