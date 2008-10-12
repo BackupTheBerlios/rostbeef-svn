@@ -3,7 +3,7 @@
 %%% Author  : Rafael <ruzarowski@zweitgeist.com>
 %%% Purpose : XML-RPC server extension
 %%% Created : 15 Nov 2007 by Rafael <ruzarowski@zweitgeist.com>
-%%% Id      : $Id: mod_xmlrpc_ext.erl $
+%%% Id      : $Id$
 %%%----------------------------------------------------------------------
 
 -module(mod_rostbeef).
