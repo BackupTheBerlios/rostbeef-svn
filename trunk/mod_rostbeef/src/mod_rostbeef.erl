@@ -26,7 +26,7 @@
 -include("jlib.hrl").
 
 -ifdef(ejabberd_debug).
--export([link_contacts/4]).
+-export([link_contacts/4, unlink_contacts/2]).
 -endif.
 
 
@@ -91,14 +91,35 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
     [Jid1, Nick1, Jid2, Nick2] = get_attrs([jid1, nick1, jid2, nick2], AttrL),
     R = case catch link_contacts(Jid1, Nick1, Jid2, Nick2) of
             ok ->
-                0;
+                1;
             {error, Reason} ->
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: ~p~n",
-                                            [Jid1, node(), Reason]));
+                                            [Jid1, node(), Reason])),
+                0;
             {'EXIT',_Err} ->
                 ?ERROR_MSG("~p", [_Err]),
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
-                                            [Jid1, node()]))
+                                            [Jid1, node()])),
+                0
+        
+        end,
+    {false, {response, [R]}};
+
+% unlink_contacts  struct[{jid1, String}, {jid2, String}]           Integer
+handler(_State, {call, unlink_contacts, [{struct, AttrL}]}) ->
+    [Jid1, Jid2] = get_attrs([jid1, jid2], AttrL),
+    R = case catch unlink_contacts(Jid1, Jid2) of
+            ok ->
+                1;
+            {error, Reason} ->
+                lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: ~p~n",
+                                            [Jid1, node(), Reason])),
+                0;
+            {'EXIT',_Err} ->
+                ?ERROR_MSG("~p", [_Err]),
+                lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
+                                            [Jid1, node()])),
+                0
         
         end,
     {false, {response, [R]}};
@@ -313,7 +334,37 @@ subscribe(Jid1, Jid2, Name, SubscriptionType, Groups) ->
                                        subscription=SubscriptionType,
                                        groups=Groups}).
 
+unlink_contacts(Jid1_s, Jid2_s) ->
+    Jid1 = jlib:string_to_jid(Jid1_s),
+    Jid2 = jlib:string_to_jid(Jid2_s),
+    case unsubscribe(Jid1, Jid2) of
+        ok ->
+            push_item(Jid1,                               
+                      {xmlelement,"item",
+                       [{"jid",Jid2_s},
+                        {"subscription", "remove"}],
+                       []}),
+            
+            case unsubscribe(Jid2, Jid1) of
+                ok ->
+                    push_item(Jid2, 
+                              {xmlelement,"item",
+                               [{"jid",Jid1_s},
+                                {"subscription", "remove"}],
+                               []}),
+                    
+                    ok;
+                Error2 ->
+                    {error, Error2}
+            end;
+        Error1 ->
+            {error, Error1}
+    end.
 
+unsubscribe(Jid1, Jid2) ->
+    mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
+                                 {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}}).
+        
 push_item(Jid, Item) ->
     BareJid = jlib:jid_remove_resource(Jid),
     ResIQ = #iq{type = set, xmlns = ?NS_ROSTER,
