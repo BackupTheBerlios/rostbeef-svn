@@ -13,9 +13,9 @@
 -behaviour(gen_mod).
 
 -export([start/2,
-   handler/2,
-   loop/1,
-   stop/1]).
+         handler/2,
+         loop/1,
+         stop/1]).
 
 -export([presence_set/4, presence_unset/4]).
 
@@ -25,7 +25,12 @@
 -include("mod_roster.hrl").
 -include("jlib.hrl").
 
--define(PROCNAME, ejabberd_mod_xmlrpc_ext).
+-ifdef(ejabberd_debug).
+-export([link_contacts/4]).
+-endif.
+
+
+-define(PROCNAME, ejabberd_mod_rostbeef).
 
 %% -----------------------------
 %% Module interface
@@ -79,6 +84,24 @@ stop(_Host) ->
 %% -----------------------------
 
 %% Call:           Arguments:                                      Returns:
+
+% link_contacts  struct[{jid1, String}, {nick1, String}, 
+%                       {jid2, String}, {nick2, String}]           Integer
+handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
+    [Jid1, Nick1, Jid2, Nick2] = get_attrs([jid1, nick1, jid2, nick2], AttrL),
+    R = case catch link_contacts(Jid1, Nick1, Jid2, Nick2) of
+            ok ->
+                0;
+            {error, Reason} ->
+                lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: ~p~n",
+                                            [Jid1, node(), Reason]));
+            {'EXIT',_Err} ->
+                ?ERROR_MSG("~p", [_Err]),
+                lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
+                                            [Jid1, node()]))
+        
+        end,
+    {false, {response, [R]}};
 
 %% get_resources  struct[{user, String}, {server, String}          Array
 handler(_State, {call, get_resources, [{struct, AttrL}]}) -> 
@@ -249,4 +272,57 @@ get_attr(A, L) ->
       ?ERROR_MSG("Attribute '~p' not found on the list of attributes provided on the call:~n ~p", [A, L]),
       attribute_not_found = A
     end.
+
+%%% ---------------------
+%%% SUBSCRIPTION HANDLING
+%%% ---------------------
+
+link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
+    Jid1 = jlib:string_to_jid(Jid1_s),
+    Jid2 = jlib:string_to_jid(Jid2_s),
+    case subscribe(Jid1, Jid2, Nick2, both, []) of
+        ok ->
+            push_item(Jid1, 
+                      {xmlelement, "item", 
+                       [{"jid", Jid2_s},
+                        {"name", Nick2},
+                        {"subscription", "both"}],
+                       []}),
+            case subscribe(Jid2, Jid1, Nick1, both, []) of
+                ok ->
+                    push_item(Jid2, 
+                              {xmlelement,"item",
+                               [{"jid",Jid1_s},
+                                {"name",Nick1},
+                                {"subscription", "both"}],
+                               []}),
+                    ok;
+                Error2 ->
+                    {error, Error2}
+            end;
+        Error1 ->
+            {error, Error1}
+    end.
+
+subscribe(Jid1, Jid2, Name, SubscriptionType, Groups) ->
+    mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver, 
+                                            {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
+                                       us={Jid1#jid.luser, Jid1#jid.lserver},
+                                       jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
+                                       name=Name,
+                                       subscription=SubscriptionType,
+                                       groups=Groups}).
+
+
+push_item(Jid, Item) ->
+    BareJid = jlib:jid_remove_resource(Jid),
+    ResIQ = #iq{type = set, xmlns = ?NS_ROSTER,
+                id = "push",
+                sub_el = [{xmlelement, "query",
+                           [{"xmlns", ?NS_ROSTER}],
+                           [Item]}]},
+    ejabberd_router:route(
+      BareJid,
+      BareJid,
+      jlib:iq_to_xml(ResIQ)).
 
