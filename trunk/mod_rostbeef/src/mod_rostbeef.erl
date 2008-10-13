@@ -41,28 +41,28 @@ start(_Host, Opts) ->
     undefined ->
     %% init presencetraker
     rostbeef_presence_tracker:init_presence_database(),
-    
+
     %% Add Hooks in order to track state per user/resource in mnesia db
       ejabberd_hooks:add(set_presence_hook, _Host,
            ?MODULE, presence_set, 50),
       ejabberd_hooks:add(unset_presence_hook, _Host,
            ?MODULE, presence_unset, 50),
-    
+
       Port = gen_mod:get_opt(port, Opts, 4560),
       MaxSessions = 10,
       Timeout = 50,
       Handler = {mod_rostbeef, handler},
       State = started,
-      Ip = gen_mod:get_opt(ip, Opts, all), 
+      Ip = gen_mod:get_opt(ip, Opts, all),
       {ok, Pid} = xmlrpc:start_link(Ip, Port, MaxSessions, Timeout, Handler, State), %% start process
       ?INFO_MSG("Started ~p on node ~p with pid ~p~n", [?MODULE, node(), Pid]), %% info
       register(?PROCNAME, spawn(?MODULE, loop, [Pid]));
     _ ->
-      ?INFO_MSG("~p already running on node ~p~n", [?MODULE, node()]), 
+      ?INFO_MSG("~p already running on node ~p~n", [?MODULE, node()]),
       ok
     end.
 
-loop(Pid) -> 
+loop(Pid) ->
     receive
       stop ->
         ?INFO_MSG("~p on node ~p received stop message~n", [?MODULE, node()]),
@@ -75,7 +75,7 @@ stop(_Host) ->
            ?MODULE, presence_set, 50),
     ejabberd_hooks:delete(unset_presence_hook, _Host,
            ?MODULE, presence_unset, 50),
-           
+
     ?PROCNAME ! stop.
 
 
@@ -85,7 +85,7 @@ stop(_Host) ->
 
 %% Call:           Arguments:                                      Returns:
 
-% link_contacts  struct[{jid1, String}, {nick1, String}, 
+% link_contacts  struct[{jid1, String}, {nick1, String},
 %                       {jid2, String}, {nick2, String}]           Integer
 handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
     [Jid1, Nick1, Jid2, Nick2] = get_attrs([jid1, nick1, jid2, nick2], AttrL),
@@ -101,7 +101,7 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
                                             [Jid1, node()])),
                 0
-        
+
         end,
     {false, {response, [R]}};
 
@@ -120,22 +120,35 @@ handler(_State, {call, unlink_contacts, [{struct, AttrL}]}) ->
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
                                             [Jid1, node()])),
                 0
-        
+
         end,
     {false, {response, [R]}};
 
 %% get_resources  struct[{user, String}, {server, String}          Array
-handler(_State, {call, get_resources, [{struct, AttrL}]}) -> 
-    [User, Server] = get_attrs([user, server], AttrL), 
+handler(_State, {call, get_resources, [{struct, AttrL}]}) ->
+    [User, Server] = get_attrs([user, server], AttrL),
     ?DEBUG("XMLRPC::get_resources for ~p@~p~n", [User, Server]),
-    case ejabberd_sm:get_user_resources(User, Server) of 
-      Resources when is_list(Resources) -> 
+    case ejabberd_sm:get_user_resources(User, Server) of
+      Resources when is_list(Resources) ->
         {false, {response, [{array,Resources}]}};
-      _Foo ->  
+      _Foo ->
         ?DEBUG("resources not as list: ~p", [_Foo]),
         {false, {response, [{array, []}]}}
     end;
 
+%% Array of Struct(String jid, String show, String status)
+handler(_State, {call, get_presence, [{struct, AttrL}]}) ->
+    [User, Server] = get_attrs([user, server], AttrL),
+    Presence =  rostbeef_presence_tracker:read_presence(User, Server),
+    XmlRpc = lists:foldl(
+              fun(Elem, Accumulator) ->
+                {Resource, Show, Status, _} = Elem,
+                Accumulator ++ [ {struct, [ {jid, jlib:jid_to_string({User, Server, Resource})}, {show, Show}, {status, Status} ] } ]
+              end,
+              [],
+              Presence
+            ),
+    {false, {response, [{array, XmlRpc}] } };
 
 %% get_roster  struct[{user, String}, {server, String}]
 %%                       array[struct[{jid, String}, {nick, String}, {Group, String}]]
@@ -143,20 +156,26 @@ handler(_State, {call, get_roster, [{struct, AttrL}]}) ->
     [User, Server] = get_attrs([user, server], AttrL),
     Node = node(),
     R = case get_roster(User, Server) of
-	    {ok, Roster} ->
+      {ok, Roster} ->
           ?DEBUG("XMLRPC::get_roster for ~p@~p", [User, Server]),
-          RosterXMLRPC = make_roster_xmlrpc(Roster), 
+          RosterXMLRPC = make_roster_xmlrpc(Roster),
           {array, RosterXMLRPC};
-	    {error, Reason} ->
+      {error, Reason} ->
           ?ERROR_MSG("Can't get roster of user ~p@~p on node ~p: ~p",
           [User, Server, Node, Reason]),
           1;
-	    {badrpc, Reason} ->
+      {badrpc, Reason} ->
           ?ERROR_MSG("Can't get roster of user ~p@~p on node ~p: ~p",
           [User, Server, Node, Reason]),
           1
     end,
     {false, {response, [R]}};
+
+%% get_roster_with_presence
+%% Array of Struct(String jid, String resource, String group, String nick, String subscription, String pending, String show, String status)
+%handler(_State, {call, get_roster_with_presence, [{struct, AttrL}]}) ->
+%    [User, Server] = get_attrs([user, server]. AttrL),
+%    { false, {response, []} }.
 
 %% send_stanza  struct[{from, String}, {to, String}, {stanza, String}]  Integer
 handler(_State, {call, send_stanza, [{struct, AttrL}]}) ->
@@ -200,7 +219,7 @@ send_stanza(FromJID, ToJID, Stanza) ->
         "" -> send_stanza(FromJID, ToUser, ToServer, Stanza);
         ToResource -> send_stanza(FromJID, ToUser, ToServer, ToResource, Stanza)
     end.
-    
+
 send_stanza(FromJID, ToUser, ToServer, Stanza) ->
     case ejabberd_sm:get_user_resources(ToUser, ToServer) of
         [] -> send_stanza(FromJID, ToUser, ToServer, "", Stanza);
@@ -212,7 +231,7 @@ send_stanza(FromJID, ToUser, ToServer, Stanza) ->
                 Resources
             )
     end.
-    
+
 send_stanza(FromJID, ToUser, ToServer, ToResource, Stanza) ->
     ToJID = jlib:make_jid(ToUser, ToServer, ToResource),
     ejabberd_router:route(FromJID, ToJID, Stanza).
@@ -248,18 +267,21 @@ get_roster(User, Server) ->
     end,
     {ok, Roster}.
 
+%get_roster_with_presence(User, Server) ->
+%    ok.
+
 make_roster_xmlrpc(Roster) ->
     lists:foldl(
-      fun(Item, Res) -> %% fun == anonyme functionen
-	      JIDS = jlib:jid_to_string(Item#roster.jid),
-	      Nick = Item#roster.name,
-	      Groups = case Item#roster.groups of
-			   [] -> [""];
-			   Gs -> Gs
-		       end,
-	      ItemsX = [{struct, [{jid, JIDS}, {nick, Nick}, {group, Group}]}
-			|| Group <- Groups],
-	      ItemsX ++ Res
+      fun(Item, Res) ->
+        JIDS = jlib:jid_to_string(Item#roster.jid),
+        Nick = Item#roster.name,
+        Groups = case Item#roster.groups of
+         [] -> [""];
+         Gs -> Gs
+           end,
+        ItemsX = [{struct, [{jid, JIDS}, {nick, Nick}, {group, Group}]}
+      || Group <- Groups],
+        ItemsX ++ Res
       end,
       [],
       Roster).
@@ -271,7 +293,7 @@ presence_set(User, Server, Resource, {xmlelement, _, _Attrs , _SubEls }=Packet) 
     rostbeef_presence_tracker:write_presence(User, Server, Resource , Show, Status, Priority),
     ?INFO_MSG("afterSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     none.
-    
+
 %% called by unset_presence
 presence_unset(User, Server, Resource, Status) when is_list(Status) ->
     ?INFO_MSG("beforeUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
@@ -303,15 +325,15 @@ link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
     Jid2 = jlib:string_to_jid(Jid2_s),
     case subscribe(Jid1, Jid2, Nick2, both, []) of
         ok ->
-            push_item(Jid1, 
-                      {xmlelement, "item", 
+            push_item(Jid1,
+                      {xmlelement, "item",
                        [{"jid", Jid2_s},
                         {"name", Nick2},
                         {"subscription", "both"}],
                        []}),
             case subscribe(Jid2, Jid1, Nick1, both, []) of
                 ok ->
-                    push_item(Jid2, 
+                    push_item(Jid2,
                               {xmlelement,"item",
                                [{"jid",Jid1_s},
                                 {"name",Nick1},
@@ -326,7 +348,7 @@ link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
     end.
 
 subscribe(Jid1, Jid2, Name, SubscriptionType, Groups) ->
-    mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver, 
+    mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver,
                                             {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
                                        us={Jid1#jid.luser, Jid1#jid.lserver},
                                        jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
@@ -339,20 +361,20 @@ unlink_contacts(Jid1_s, Jid2_s) ->
     Jid2 = jlib:string_to_jid(Jid2_s),
     case unsubscribe(Jid1, Jid2) of
         ok ->
-            push_item(Jid1,                               
+            push_item(Jid1,
                       {xmlelement,"item",
                        [{"jid",Jid2_s},
                         {"subscription", "remove"}],
                        []}),
-            
+
             case unsubscribe(Jid2, Jid1) of
                 ok ->
-                    push_item(Jid2, 
+                    push_item(Jid2,
                               {xmlelement,"item",
                                [{"jid",Jid1_s},
                                 {"subscription", "remove"}],
                                []}),
-                    
+
                     ok;
                 Error2 ->
                     {error, Error2}
@@ -364,7 +386,7 @@ unlink_contacts(Jid1_s, Jid2_s) ->
 unsubscribe(Jid1, Jid2) ->
     mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
                                  {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}}).
-        
+
 push_item(Jid, Item) ->
     BareJid = jlib:jid_remove_resource(Jid),
     ResIQ = #iq{type = set, xmlns = ?NS_ROSTER,
@@ -376,4 +398,3 @@ push_item(Jid, Item) ->
       BareJid,
       BareJid,
       jlib:iq_to_xml(ResIQ)).
-

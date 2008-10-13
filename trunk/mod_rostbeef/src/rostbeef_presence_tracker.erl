@@ -8,7 +8,8 @@
           init_presence_database/0,
           write_presence/6, write_presence/5, write_presence/4,
           delete_presence/3,
-          read_presence/2]).
+          read_presence/2,
+          read_roster_presence/1]).
 
 -include("ejabberd.hrl").
 
@@ -108,4 +109,11 @@ read_presence(User, Server) ->
         Data = #presence_tracker_data{us = {User, Server} , presence_list = '$1'},
         catch mnesia:select(presence_tracker_data, [{Data, [], ['$1'] }])
       end,
-    mnesia:transaction(F).
+    case mnesia:transaction(F) of
+      {atomic, [Result]} -> Result;
+      _ ->                [{"", "unavailable", "", 0}]
+    end.
+
+read_roster_presence(_Roster) ->
+
+    ok.
