@@ -9,6 +9,7 @@
           write_presence/6, write_presence/5, write_presence/4,
           delete_presence/3,
           read_presence/2,
+          dirty_read_presence/2,
           read_roster_presence/1]).
 
 -define(ejabberd_debug, true).
