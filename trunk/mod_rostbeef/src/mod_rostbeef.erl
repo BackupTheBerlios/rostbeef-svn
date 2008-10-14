@@ -91,16 +91,16 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
     [Jid1, Nick1, Jid2, Nick2] = get_attrs([jid1, nick1, jid2, nick2], AttrL),
     R = case catch link_contacts(Jid1, Nick1, Jid2, Nick2) of
             ok ->
-                1;
+                0;
             {error, Reason} ->
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: ~p~n",
                                             [Jid1, node(), Reason])),
-                0;
+                -1;
             {'EXIT',_Err} ->
                 ?ERROR_MSG("~p", [_Err]),
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
                                             [Jid1, node()])),
-                0
+                -1
 
         end,
     {false, {response, [R]}};
@@ -110,16 +110,16 @@ handler(_State, {call, unlink_contacts, [{struct, AttrL}]}) ->
     [Jid1, Jid2] = get_attrs([jid1, jid2], AttrL),
     R = case catch unlink_contacts(Jid1, Jid2) of
             ok ->
-                1;
+                0;
             {error, Reason} ->
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: ~p~n",
                                             [Jid1, node(), Reason])),
-                0;
+                -1;
             {'EXIT',_Err} ->
                 ?ERROR_MSG("~p", [_Err]),
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
                                             [Jid1, node()])),
-                0
+                -1
 
         end,
     {false, {response, [R]}};
@@ -380,13 +380,18 @@ link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
     end.
 
 subscribe(Jid1, Jid2, Name, SubscriptionType, Groups) ->
-    mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver,
-                                            {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
-                                       us={Jid1#jid.luser, Jid1#jid.lserver},
-                                       jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
-                                       name=Name,
-                                       subscription=SubscriptionType,
-                                       groups=Groups}).
+    case ejabberd_auth:is_user_exists(Jid1#jid.luser, Jid1#jid.lserver) of
+        true ->
+            mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver,
+                                                    {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
+                                               us={Jid1#jid.luser, Jid1#jid.lserver},
+                                               jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
+                                               name=Name,
+                                               subscription=SubscriptionType,
+                                               groups=Groups});
+        _ ->
+            not_exists
+    end.
 
 unlink_contacts(Jid1_s, Jid2_s) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
@@ -416,8 +421,13 @@ unlink_contacts(Jid1_s, Jid2_s) ->
     end.
 
 unsubscribe(Jid1, Jid2) ->
-    mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
-                                 {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}}).
+    case ejabberd_auth:is_user_exists(Jid1#jid.luser, Jid1#jid.lserver) of
+        true ->
+            mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
+                                         {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}});
+        _ ->
+            not_exists
+    end.
 
 push_item(Jid, Item) ->
     BareJid = jlib:jid_remove_resource(Jid),
