@@ -139,16 +139,8 @@ handler(_State, {call, get_resources, [{struct, AttrL}]}) ->
 %% Array of Struct(String jid, String show, String status)
 handler(_State, {call, get_presence, [{struct, AttrL}]}) ->
     [User, Server] = get_attrs([user, server], AttrL),
-    Presence =  rostbeef_presence_tracker:read_presence(User, Server),
-    XmlRpc = lists:foldl(
-              fun(Elem, Accumulator) ->
-                {Resource, Show, Status, _} = Elem,
-                Accumulator ++ [ {struct, [ {jid, jlib:jid_to_string({User, Server, Resource})}, {show, Show}, {status, Status} ] } ]
-              end,
-              [],
-              Presence
-            ),
-    {false, {response, [{array, XmlRpc}] } };
+    Presence =  rostbeef_presence_tracker:dirty_read_presence(User, Server),
+    {false, {response, [{array, rostbeef_utils:make_presence_xmlrpc_with_jid(User, Server, Presence)}] } };
 
 %% get_roster  struct[{user, String}, {server, String}]
 %%                       array[struct[{jid, String}, {nick, String}, {Group, String}]]
@@ -172,10 +164,19 @@ handler(_State, {call, get_roster, [{struct, AttrL}]}) ->
     {false, {response, [R]}};
 
 %% get_roster_with_presence
-%% Array of Struct(String jid, String resource, String group, String nick, String subscription, String pending, String show, String status)
-%handler(_State, {call, get_roster_with_presence, [{struct, AttrL}]}) ->
-%    [User, Server] = get_attrs([user, server]. AttrL),
-%    { false, {response, []} }.
+%% Array of Struct(String jid, String resource, String group, String nick, String subscription, String pending, String show, String status, Integer priority)
+handler(_State, {call, get_roster_with_presence, [{struct, AttrL}]}) ->
+    [User, Server] = get_attrs([user, server], AttrL),
+    R = case get_roster(User, Server) of
+      {ok, Roster} ->
+          ?DEBUG("XMLRPC::get_roster for ~p@~p", [User, Server]),
+          RosterXMLRPC = make_roster_with_presence_xmlrpc(Roster),
+          {array, RosterXMLRPC};
+      {error, Reason} ->
+          ?ERROR_MSG("Can't get roster of user ~p@~p on node ~p: ~p", [User, Server, node(), Reason]),
+          1
+    end,
+    { false, {response, [R]} };
 
 %% send_stanza  struct[{from, String}, {to, String}, {stanza, String}]  Integer
 handler(_State, {call, send_stanza, [{struct, AttrL}]}) ->
@@ -267,9 +268,6 @@ get_roster(User, Server) ->
     end,
     {ok, Roster}.
 
-%get_roster_with_presence(User, Server) ->
-%    ok.
-
 make_roster_xmlrpc(Roster) ->
     lists:foldl(
       fun(Item, Res) ->
@@ -286,6 +284,41 @@ make_roster_xmlrpc(Roster) ->
       [],
       Roster).
 
+
+%% Array of Struct(String jid, String group, String nick, String subscription,
+%%        String pending,
+%%        Array of Struct(String resource, String show, String status, Integer priority))
+make_roster_with_presence_xmlrpc(Roster) ->
+?DEBUG("~p~n",[Roster]),
+    lists:foldl(
+      fun(Item, Aggregation) ->
+        {roster, _,  _, Jid_r, Name, Subscription, Ask, Groups, _, _} = Item,
+        Jid = jlib:make_jid(Jid_r),
+        Jid_s = jlib:jid_to_string(Jid),
+        User = Jid#jid.luser,
+        Server = Jid#jid.lserver,
+        GroupList = case Groups of
+          [] -> [""];
+          Gs -> Gs
+        end,
+        Presence = rostbeef_presence_tracker:dirty_read_presence(User, Server),
+        P = rostbeef_utils:make_presence_xmlrpc_with_resource(Presence),
+        ItemsX = [{struct, [
+          {jid, Jid_s},
+          {group, Group},
+          {nick, Name},
+          {subscription, erlang:atom_to_list(Subscription) },
+          {pending, erlang:atom_to_list(Ask) },
+          {presence, {array, P} }
+          ]} || Group <- GroupList],
+        ItemsX ++ Aggregation
+      end,
+      [],
+      Roster).
+
+%% -----------------------------------------------------------------------------
+%% Presence hooks
+
 %% called by set_presence
 presence_set(User, Server, Resource, {xmlelement, _, _Attrs , _SubEls }=Packet) ->
     {Show, Status, Priority} = rostbeef_utils:extract_presence_state(Packet),
@@ -301,8 +334,7 @@ presence_unset(User, Server, Resource, Status) when is_list(Status) ->
     ?INFO_MSG("afterUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     none.
 
-
-
+%% -----------------------------------------------------------------------------
 %% Lists
 get_attrs(Attribute_names, L) ->
     [get_attr(A, L) || A <- Attribute_names].

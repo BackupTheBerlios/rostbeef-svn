@@ -2,7 +2,9 @@
 -module(batch_read).
 -author('markus.knofe@zweitgeist.com').
 -vsn('1.0').
--compile(export_all).
+
+-export([test/0]).
+
 -record(presence_tracker_data, {us, presence_list=[]}).
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -18,7 +20,7 @@ gtdr(Number) ->
 generate_testdata(L) ->
     T1 = erlang:now(),
     F = fun() ->
-      lists:map(fun(T) -> 
+      lists:map(fun(T) ->
                     catch mnesia:write( presence_tracker_data,
                     #presence_tracker_data{us=T,presence_list = [{" ", " ", " ", " "}]},
                     write)
@@ -50,8 +52,6 @@ read_testdata2(U) ->
 
 read_testdata3(U) ->
   T1 = erlang:now(),
-  %{atomic, V } = mnesia:transaction(fun()-> mnesia:table(presence_tracker_data) end),
-  %[F == {0,0} || { F, _G} <- V],
   lists:flatmap(
     fun(Elem) ->
       F = fun(Elem2) ->  mnesia:read(presence_tracker_data, Elem2) end,
@@ -67,14 +67,35 @@ read_testdata3(U) ->
 
 read_testdata4(U) ->
   T1 = erlang:now(),
-  %{atomic, V } = mnesia:transaction(fun()-> mnesia:table(presence_tracker_data) end),
-  %[F == {0,0} || { F, _G} <- V],
   lists:flatmap(
     fun(Elem) ->
       mnesia:dirty_read(presence_tracker_data, Elem)
     end,
     U
   ),
+  timer:now_diff(erlang:now(),T1).
+
+
+h_one( [H|T] ) -> [mnesia:dirty_read(presence_tracker_data, H)] ++ h_one(T);
+h_one( [] )    -> [].
+
+read_testdata5(U) ->
+  T1 = erlang:now(),
+  h_one(U),
+  timer:now_diff(erlang:now(),T1).
+
+read_testdata6(U) ->
+  T1 = erlang:now(),
+  lists:foldl( fun(Elem, A) ->
+                  F = fun() ->
+                        %Result = mnesia:read(presence_tracker_data, {"User","Server"}, write),
+                        Data = #presence_tracker_data{us = Elem , presence_list = '$1'},
+                        catch mnesia:select(presence_tracker_data, [{Data, [], ['$1'] }])
+                      end,
+                  mnesia:transaction(F)
+                end,
+                [],
+                U),
   timer:now_diff(erlang:now(),T1).
 
 test() ->
@@ -88,11 +109,13 @@ test() ->
         {aborted, Reason} ->
               io:format("~p: Faild to create Ram-Table: ~p~n",[?MODULE, Reason])
     end,
-    L = gtd(20000),
-    U = gtd(30000),
+    L = gtd(200000),
+    U = gtd(300000),
     io:format("gen ~p microsecond~n", [generate_testdata(L)]),
     io:format("read ~p microsecond~n", [read_testdata1()]),
     io:format("read2 ~p microsecond\n", [read_testdata2(U)]),
     io:format("read3 ~p microsecond\n", [read_testdata3(U)]),
-    io:format("read3 ~p microsecond\n", [read_testdata4(U)]),
+    io:format("read6 ~p microsecond\n", [read_testdata6(U)]),
+    io:format("read4 ~p microsecond\n", [read_testdata4(U)]),
+    io:format("read5 ~p microsecond\n", [read_testdata5(U)]),
     ok.

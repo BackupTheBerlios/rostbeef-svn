@@ -112,5 +112,13 @@ read_presence(User, Server) ->
         _ ->                [{"", "unavailable", "", 0}]
     end.
 
+dirty_read_presence(User, Server) ->
+    case catch mnesia:dirty_read(presence_tracker_data, {User, Server}) of
+      [{presence_tracker_data, _, Result}]  -> Result;
+      _                                     -> [{"", "unavailable", "", 0}]
+    end.
+
+
+
 read_roster_presence(_Roster) ->
     ok.
