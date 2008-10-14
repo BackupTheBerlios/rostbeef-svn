@@ -11,6 +11,7 @@
           read_presence/2,
           read_roster_presence/1]).
 
+-define(ejabberd_debug, true).
 -include("ejabberd.hrl").
 
 %% define Name
@@ -59,16 +60,16 @@ init_presence_database() ->
 %% Priority - int
 write_presence(User, Server, Resource, Show, State, Priority) ->
     F = fun() ->
-          List =  case catch mnesia:read(presence_tracker_data, {User, Server}, write) of
-                    [#presence_tracker_data{presence_list=OldList}] ->
-                        lists:keydelete(Resource, 1, OldList);
-                    _ ->
-                        []
-                  end,
-          catch mnesia:write( presence_tracker_data,
-                              #presence_tracker_data{us={User, Server},presence_list = List ++ [{Resource, Show, State, Priority}]},
-                              write)
-    end,
+                List =  case mnesia:wread({presence_tracker_data, {User, Server}}) of
+                            [#presence_tracker_data{presence_list=OldList}] ->
+                                lists:keydelete(Resource, 1, OldList);
+                            _ ->
+                                []
+                        end,
+                mnesia:write(#presence_tracker_data{us={User, Server},
+                                                    presence_list = List ++ 
+                                                    [{Resource, Show, State, Priority}]})
+        end,
     mnesia:transaction(F).
 %% callable with no Priority (and State)
 write_presence(User, Server, Resource, Show) -> write_presence(User, Server, Resource, Show, " ", 0).
@@ -82,22 +83,20 @@ write_presence(User, Server, Resource, Show, State) -> write_presence(User, Serv
 %% Resource - string (must be lowcase)
 delete_presence(User, Server, Resource) ->
     F = fun() ->
-          List =  case catch mnesia:read(presence_tracker_data, {User, Server}, write) of
-                    [#presence_tracker_data{presence_list=OldList}] ->
-                        lists:keydelete(Resource, 1, OldList);
+                List =  case mnesia:wread({presence_tracker_data, {User, Server}}) of
+                            [#presence_tracker_data{presence_list=OldList}] ->
+                                lists:keydelete(Resource, 1, OldList);
+                            _ ->
+                                mthie
+                        end,
+                case List of
+                    mthie -> void;
+                    [] ->
+                        mnesia:delete(presence_tracker_data, {User,Server}, write);
                     _ ->
-                        mthie
-                  end,
-          case List of
-            mthie -> void;
-            [] ->
-              catch mnesia:delete(presence_tracker_data, {User,Server}, write);
-            _ ->
-              catch mnesia:write( presence_tracker_data,
-                                  #presence_tracker_data{us={User, Server},presence_list=List},
-                                  write)
-          end
-    end,
+                        mnesia:write(#presence_tracker_data{us={User, Server},presence_list=List})
+                end
+        end,
     mnesia:transaction(F).
 
 %% called to recive all resource-stats for a User, Server- Tuple
@@ -105,15 +104,13 @@ delete_presence(User, Server, Resource) ->
 %% Server   - string (must be lowcase)
 read_presence(User, Server) ->
     F = fun() ->
-        %Result = mnesia:read(presence_tracker_data, {"User","Server"}, write),
-        Data = #presence_tracker_data{us = {User, Server} , presence_list = '$1'},
-        catch mnesia:select(presence_tracker_data, [{Data, [], ['$1'] }])
-      end,
+                Data = #presence_tracker_data{us = {User, Server} , presence_list = '$1'},
+                mnesia:select(presence_tracker_data, [{Data, [], ['$1'] }])
+        end,
     case mnesia:transaction(F) of
-      {atomic, [Result]} -> Result;
-      _ ->                [{"", "unavailable", "", 0}]
+        {atomic, [Result]} -> Result;
+        _ ->                [{"", "unavailable", "", 0}]
     end.
 
 read_roster_presence(_Roster) ->
-
     ok.
