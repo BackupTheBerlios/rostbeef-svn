@@ -19,14 +19,14 @@
 
 -export([presence_set/4, presence_unset/4]).
 
--define(ejabberd_debug, true).
+-define(ejabberd_debug, false).
 
 -include("ejabberd.hrl").
 -include("mod_roster.hrl").
 -include("jlib.hrl").
 
 -ifdef(ejabberd_debug).
--export([link_contacts/4, unlink_contacts/2]).
+-export([link_contacts/4, unlink_contacts/2, add_rosteritem/6, delete_rosteritem/3]).
 -endif.
 
 
@@ -85,6 +85,27 @@ stop(_Host) ->
 
 %% Call:           Arguments:                                      Returns:
 
+% add_rosteritem  struct[{user, String}, {server, String},
+%                        {jid, String}, {group, String},
+%                        {nick, String}, {subs, String}]           Integer
+handler(_State, {call, add_rosteritem, [{struct, AttrL}]}) ->
+    [User, Server, Jid, Group, Nick, Subs] = get_attrs([user, server, jid, group, nick, subs], AttrL),
+    R = case catch add_rosteritem(User, Server, Jid, Group, Nick, Subs) of
+            ok ->
+                0;
+            {error, Reason} ->
+                lists:flatten(io_lib:format("Can't add roster item to user ~p@~p on node ~p: ~p~n",
+                                            [User, Server, node(), Reason])),
+                -1;
+            {'EXIT',_Err} ->
+                ?ERROR_MSG("~p", [_Err]),
+                lists:flatten(io_lib:format("Can't add roster item to user ~p@~p on node ~p: Internal Server Error~n",
+                                            [User, Server, node()])),
+                -1
+
+        end,
+    {false, {response, [R]}};
+
 % link_contacts  struct[{jid1, String}, {nick1, String},
 %                       {jid2, String}, {nick2, String}]           Integer
 handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
@@ -100,6 +121,26 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
                 ?ERROR_MSG("~p", [_Err]),
                 lists:flatten(io_lib:format("Can't add roster item to user ~p on node ~p: Internal Server Error~n",
                                             [Jid1, node()])),
+                -1
+
+        end,
+    {false, {response, [R]}};
+
+% delete_rosteritem  struct[{user, String}, {server, String}, 
+%                           {jid, String}]                         Integer
+handler(_State, {call, delete_rosteritem, [{struct, AttrL}]}) ->
+    [User, Server, Jid] = get_attrs([user, server, jid], AttrL),
+    R = case catch delete_rosteritem(User, Server, Jid) of
+            ok ->
+                0;
+            {error, Reason} ->
+                lists:flatten(io_lib:format("Can't add roster item to user ~p@~p on node ~p: ~p~n",
+                                            [User, Server, node(), Reason])),
+                -1;
+            {'EXIT',_Err} ->
+                ?ERROR_MSG("~p", [_Err]),
+                lists:flatten(io_lib:format("Can't add roster item to user ~p@~p on node ~p: Internal Server Error~n",
+                                            [User, Server, node()])),
                 -1
 
         end,
@@ -352,6 +393,22 @@ get_attr(A, L) ->
 %%% SUBSCRIPTION HANDLING
 %%% ---------------------
 
+add_rosteritem(User, Server, Jid2_s, Group, Nick, Subs) ->
+    Jid1 = jlib:make_jid(User, Server, ""),
+    Jid2 = jlib:string_to_jid(Jid2_s),
+    case subscribe(Jid1, Jid2, Nick, list_to_atom(Subs), Group) of
+        ok ->
+            push_item(Jid1,
+                      {xmlelement, "item",
+                       [{"jid", Jid2_s},
+                        {"name", Nick},
+                        {"subscription", Subs}],
+                       [{xmlelement, "group", [], [{xmlcdata, Group}]}]});
+        E ->
+            {error, E}
+    end.
+            
+
 link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
     Jid2 = jlib:string_to_jid(Jid2_s),
@@ -425,6 +482,20 @@ subscribe_odbc(Jid1, Jid2, Name, Subs, Group) ->
             E
     end.
 
+delete_rosteritem(User, Server, Jid2_s) ->
+    Jid1 = jlib:make_jid(User, Server, ""),
+    Jid2 = jlib:string_to_jid(Jid2_s),
+    case unsubscribe(Jid1, Jid2) of
+        ok ->
+            push_item(Jid1,
+                      {xmlelement,"item",
+                       [{"jid",Jid2_s},
+                        {"subscription", "remove"}],
+                       []});
+        E ->
+            {error, E}
+    end.
+            
 
 unlink_contacts(Jid1_s, Jid2_s) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
