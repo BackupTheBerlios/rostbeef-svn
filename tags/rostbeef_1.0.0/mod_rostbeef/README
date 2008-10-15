@@ -1,0 +1,18 @@
+* to compile the project execute 'build.sh' or 'build.bat' from within this 
+  directory
+* if you need to add a new source file put it into folder 'src' and make sure
+  to supply a compile directive at 'Emakefile'
+* to make your modules available under ejabberd either copy the contents of the
+  'ebin' directory to your ejabberd's installation directory (where all of its
+  beam files reside) or (prefered) add the path to this ebin directory to your
+  ejabberd's start script. This is accomplished by using the parameter '-pa'
+  to the erl command (see 'man erl' for details).
+* to make ejabberd actually use the module you need to add an entry to the 
+  modules directive of its configuration file like this
+
+{modules,
+ [
+...
+{mod_rostbeef, []}
+...
+ ]}
