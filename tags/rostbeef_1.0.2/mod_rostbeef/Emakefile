@@ -1,0 +1,4 @@
+{'../ejabberd-dev/src/gen_mod', [{outdir, "../ejabberd-dev/ebin"},{i,"../ejabberd-dev/include"}]}.
+{'src/mod_rostbeef',     [{outdir, "ebin"},{i,"../ejabberd-dev/include"}]}.
+{'src/rostbeef_presence_tracker',     [{outdir, "ebin"},{i,"../ejabberd-dev/include"}]}.
+{'src/rostbeef_utils',     [{outdir, "ebin"},{i,"../ejabberd-dev/include"}]}.
