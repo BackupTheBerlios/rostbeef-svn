@@ -1,27 +1,6 @@
-% {xmlelement,
-%  "presence",
-%  [],
-%  [{xmlelement,
-%       "show",
-%       [],
-%       [{xmlcdata,<<"away">>}]},
-%   {xmlelement,
-%       "status",
-%       [],
-%       [{xmlcdata,
-%            <<"I'm not here right now">>}]},
-%   {xmlelement,
-%       "c",
-%       [{"xmlns",
-%         "http://jabber.org/protocol/caps"},
-%        {"node","http://pidgin.im/caps"},
-%        {"ver","2.5.1"},
-%        {"ext",
-%         "mood moodn nick nickn tune tunen avatarmeta avatardata avatar"}],
-%       []}]}
 %%% Presence Tracker
 -module(rostbeef_utils).
--author('markus.knofe@zweitgeist.com').
+-author('flatline@users.berlios.de').
 -vsn('0.1').
 
 %% export modul-interface
@@ -49,7 +28,6 @@ extract_presence_state(Packet) ->
                 _ ->      xml:get_subtag_cdata(Packet, "priority")
            end,
     {Show, Status, Priority}.
-
 
 make_presence_xmlrpc_with_jid(User, Server, PresenceData) ->
     lists:foldl(

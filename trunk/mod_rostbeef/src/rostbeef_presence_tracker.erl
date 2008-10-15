@@ -1,16 +1,15 @@
 %%% Presence Tracker
 -module(rostbeef_presence_tracker).
--author('markus.knofe@zweitgeist.com').
+-author('flatline@users.berlios.de').
 -vsn('0.1').
 
 %% export modul-interface
--export([ test/0,
+-export([ %test/0, %% trest disbaled
           init_presence_database/0,
           write_presence/6, write_presence/5, write_presence/4,
           delete_presence/3,
           read_presence/2,
-          dirty_read_presence/2,
-          read_roster_presence/1]).
+          dirty_read_presence/2]).
 
 -define(ejabberd_debug, false).
 -include("ejabberd.hrl").
@@ -21,23 +20,23 @@
 %% define record for nmesia ram-table
 -record(presence_tracker_data, {us, presence_list=[]}).
 
-test() ->
-  mnesia:start(),
-  init_presence_database(),
-  write_presence("User1","Server","1","available"),
-  write_presence("User1","Server","2","away", "SomeState"),
-  write_presence("User1","Server","3","xa", "SomeState", 42),
-  io:format ("{~p,~p} ~p~n", ["User1","Server", read_presence("User1","Server")]),
-  io:format ("{~p,~p} ~p~n~n", ["User2","Server", read_presence("User2","Server")]),
-  write_presence("User2","Server","A","chat", "SomeState", 42),
-  write_presence("User2","Server","B","away", "SomeState", 42),
-  write_presence("User2","Server","C","dnd", "SomeState", 42),
-  delete_presence("User1","Server","1"),
-  delete_presence("User1","Server","2"),
-  delete_presence("User1","Server","3"),
-  io:format ("{~p,~p} ~p~n", ["User1","Server", read_presence("User1","Server")]),
-  io:format ("{~p,~p} ~p~n", ["User2","Server", read_presence("User2","Server")]),
-  delete_presence("U","S","Resource").
+%test() ->
+%  mnesia:start(),
+%  init_presence_database(),
+%  write_presence("User1","Server","1","available"),
+%  write_presence("User1","Server","2","away", "SomeState"),
+%  write_presence("User1","Server","3","xa", "SomeState", 42),
+%  io:format ("{~p,~p} ~p~n", ["User1","Server", read_presence("User1","Server")]),
+%  io:format ("{~p,~p} ~p~n~n", ["User2","Server", read_presence("User2","Server")]),
+%  write_presence("User2","Server","A","chat", "SomeState", 42),
+%  write_presence("User2","Server","B","away", "SomeState", 42),
+%  write_presence("User2","Server","C","dnd", "SomeState", 42),
+%  delete_presence("User1","Server","1"),
+%  delete_presence("User1","Server","2"),
+%  delete_presence("User1","Server","3"),
+%  io:format ("{~p,~p} ~p~n", ["User1","Server", read_presence("User1","Server")]),
+%  io:format ("{~p,~p} ~p~n", ["User2","Server", read_presence("User2","Server")]),
+%  delete_presence("U","S","Resource").
 
 %% Starts the Modul
 init_presence_database() ->
@@ -68,7 +67,7 @@ write_presence(User, Server, Resource, Show, State, Priority) ->
                                 []
                         end,
                 mnesia:write(#presence_tracker_data{us={User, Server},
-                                                    presence_list = List ++ 
+                                                    presence_list = List ++
                                                     [{Resource, Show, State, Priority}]})
         end,
     mnesia:transaction(F).
@@ -118,8 +117,3 @@ dirty_read_presence(User, Server) ->
       [{presence_tracker_data, _, Result}]  -> Result;
       _                                     -> [{"", "unavailable", "", 0}]
     end.
-
-
-
-read_roster_presence(_Roster) ->
-    ok.

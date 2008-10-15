@@ -7,7 +7,7 @@
 %%%----------------------------------------------------------------------
 
 -module(mod_rostbeef).
--author('ruzarowski@zweitgeist.com').
+-author(['zeank@users.berlios.de', 'flatline@users.berlios.de']).
 -vsn('1.0').
 
 -behaviour(gen_mod).
@@ -126,7 +126,7 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
         end,
     {false, {response, [R]}};
 
-% delete_rosteritem  struct[{user, String}, {server, String}, 
+% delete_rosteritem  struct[{user, String}, {server, String},
 %                           {jid, String}]                         Integer
 handler(_State, {call, delete_rosteritem, [{struct, AttrL}]}) ->
     [User, Server, Jid] = get_attrs([user, server, jid], AttrL),
@@ -312,14 +312,21 @@ get_roster(User, Server) ->
 make_roster_xmlrpc(Roster) ->
     lists:foldl(
       fun(Item, Res) ->
-        JIDS = jlib:jid_to_string(Item#roster.jid),
-        Nick = Item#roster.name,
-        Groups = case Item#roster.groups of
+        {roster, _,  _, Jid_r, Name, Subscription, Ask, Groups, _, _} = Item,
+        Jid_s = jlib:jid_to_string(jlib:make_jid(Jid_r)),
+        Nick = Name,
+        GroupList = case Groups of
          [] -> [""];
          Gs -> Gs
            end,
-        ItemsX = [{struct, [{jid, JIDS}, {nick, Nick}, {group, Group}]}
-      || Group <- Groups],
+        ItemsX = [{struct, [
+                    {jid, Jid_s},
+                    {nick, Nick},
+                    {group, Group},
+                    {subscription, erlang:atom_to_list(Subscription)},
+                    {pending, erlang:atom_to_list(Ask)}
+                  ]}
+      || Group <- GroupList],
         ItemsX ++ Res
       end,
       [],
@@ -330,7 +337,6 @@ make_roster_xmlrpc(Roster) ->
 %%        String pending,
 %%        Array of Struct(String resource, String show, String status, Integer priority))
 make_roster_with_presence_xmlrpc(Roster) ->
-?DEBUG("~p~n",[Roster]),
     lists:foldl(
       fun(Item, Aggregation) ->
         {roster, _,  _, Jid_r, Name, Subscription, Ask, Groups, _, _} = Item,
@@ -363,16 +369,16 @@ make_roster_with_presence_xmlrpc(Roster) ->
 %% called by set_presence
 presence_set(User, Server, Resource, {xmlelement, _, _Attrs , _SubEls }=Packet) ->
     {Show, Status, Priority} = rostbeef_utils:extract_presence_state(Packet),
-    ?INFO_MSG("beforeSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
+    ?DEBUG("beforeSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     rostbeef_presence_tracker:write_presence(User, Server, Resource , Show, Status, Priority),
-    ?INFO_MSG("afterSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
+    ?DEBUG("afterSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     none.
 
 %% called by unset_presence
 presence_unset(User, Server, Resource, Status) when is_list(Status) ->
-    ?INFO_MSG("beforeUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
+    ?DEBUG("beforeUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     rostbeef_presence_tracker:delete_presence(User, Server, Resource),
-    ?INFO_MSG("afterUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
+    ?DEBUG("afterUNSET: ~p@~p~p", [User, Server, rostbeef_presence_tracker:read_presence(User, Server)]),
     none.
 
 %% -----------------------------------------------------------------------------
@@ -407,7 +413,7 @@ add_rosteritem(User, Server, Jid2_s, Group, Nick, Subs) ->
         E ->
             {error, E}
     end.
-            
+
 
 link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
@@ -458,7 +464,7 @@ subscribe_odbc(Jid1, Jid2, Name, Subs, Group) ->
     EJID = ejabberd_odbc:escape(jlib:jid_to_string(Jid2)),
     ENick = ejabberd_odbc:escape(Name),
     EGroup = ejabberd_odbc:escape(Group),
-    ESub = case Subs of 
+    ESub = case Subs of
                to ->
                    "T";
                from ->
@@ -495,7 +501,7 @@ delete_rosteritem(User, Server, Jid2_s) ->
         E ->
             {error, E}
     end.
-            
+
 
 unlink_contacts(Jid1_s, Jid2_s) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
@@ -542,7 +548,7 @@ unsubscribe_odbc(Jid1, Jid2) ->
     case ejabberd_odbc:sql_transaction(
       Jid1#jid.lserver,
       [["delete from rosterusers where username = '",ELU,"' and jid='", EJID, "';"],
-       ["delete from rostergroups where username = '",ELU,"' and jid='", EJID, "';"]]) of 
+       ["delete from rostergroups where username = '",ELU,"' and jid='", EJID, "';"]]) of
         {atomic, ok} ->
             ok;
         E ->
