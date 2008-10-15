@@ -379,19 +379,52 @@ link_contacts(Jid1_s, Nick1, Jid2_s, Nick2) ->
             {error, Error1}
     end.
 
-subscribe(Jid1, Jid2, Name, SubscriptionType, Groups) ->
+subscribe(Jid1, Jid2, Name, Subs, Group) ->
     case ejabberd_auth:is_user_exists(Jid1#jid.luser, Jid1#jid.lserver) of
         true ->
-            mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver,
-                                                    {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
-                                               us={Jid1#jid.luser, Jid1#jid.lserver},
-                                               jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
-                                               name=Name,
-                                               subscription=SubscriptionType,
-                                               groups=Groups});
+            subscribe_odbc(Jid1, Jid2, Name, Subs, Group);
         _ ->
             not_exists
     end.
+
+subscribe_mnesia(Jid1, Jid2, Name, Subs, Group) ->
+    mnesia:dirty_write(roster, #roster{usj={Jid1#jid.luser, Jid1#jid.lserver,
+                                            {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}},
+                                       us={Jid1#jid.luser, Jid1#jid.lserver},
+                                       jid={Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource},
+                                       name=Name,
+                                       subscription=Subs,
+                                       groups=[Group]}).
+
+subscribe_odbc(Jid1, Jid2, Name, Subs, Group) ->
+    ELU = ejabberd_odbc:escape(Jid1#jid.luser),
+    EJID = ejabberd_odbc:escape(jlib:jid_to_string(Jid2)),
+    ENick = ejabberd_odbc:escape(Name),
+    EGroup = ejabberd_odbc:escape(Group),
+    ESub = case Subs of 
+               to ->
+                   "T";
+               from ->
+                   "F";
+               both ->
+                   "B";
+               _ ->
+                   "N"
+           end,
+    case ejabberd_odbc:sql_transaction(
+           Jid1#jid.lserver,
+           [["delete from rosterusers where username = '",ELU,"' and jid='", EJID, "';"],
+            ["delete from rostergroups where username = '",ELU,"' and jid='", EJID, "';"],
+            ["insert into rosterusers (username, jid, nick, subscription, ask, server, type) "
+             "values ('",ELU,"','",EJID,"','",ENick,"','",ESub,"','N','N','item');"],
+            ["insert into rostergroups (username, jid, grp) "
+             "values ('",ELU,"','",EJID,"','",EGroup,"');"]]) of
+        {atomic, ok} ->
+            ok;
+        E ->
+            E
+    end.
+
 
 unlink_contacts(Jid1_s, Jid2_s) ->
     Jid1 = jlib:string_to_jid(Jid1_s),
@@ -423,10 +456,26 @@ unlink_contacts(Jid1_s, Jid2_s) ->
 unsubscribe(Jid1, Jid2) ->
     case ejabberd_auth:is_user_exists(Jid1#jid.luser, Jid1#jid.lserver) of
         true ->
-            mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
-                                         {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}});
+            unsubscribe_odbc(Jid1, Jid2);
         _ ->
             not_exists
+    end.
+
+unsubscribe_mnesia(Jid1,Jid2)  ->
+    mnesia:dirty_delete(roster, {Jid1#jid.luser, Jid1#jid.lserver,
+                                 {Jid2#jid.luser, Jid2#jid.lserver, Jid2#jid.lresource}}).
+
+unsubscribe_odbc(Jid1, Jid2) ->
+    ELU = ejabberd_odbc:escape(Jid1#jid.luser),
+    EJID = ejabberd_odbc:escape(jlib:jid_to_string(Jid2)),
+    case ejabberd_odbc:sql_transaction(
+      Jid1#jid.lserver,
+      [["delete from rosterusers where username = '",ELU,"' and jid='", EJID, "';"],
+       ["delete from rostergroups where username = '",ELU,"' and jid='", EJID, "';"]]) of 
+        {atomic, ok} ->
+            ok;
+        E ->
+            E
     end.
 
 push_item(Jid, Item) ->
