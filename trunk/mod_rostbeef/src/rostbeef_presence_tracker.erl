@@ -12,7 +12,7 @@
           dirty_read_presence/2,
           read_roster_presence/1]).
 
--define(ejabberd_debug, true).
+-define(ejabberd_debug, false).
 -include("ejabberd.hrl").
 
 %% define Name
