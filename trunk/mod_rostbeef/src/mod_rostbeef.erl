@@ -90,6 +90,7 @@ stop(_Host) ->
 %                        {nick, String}, {subs, String}]           Integer
 handler(_State, {call, add_rosteritem, [{struct, AttrL}]}) ->
     [User, Server, Jid, Group, Nick, Subs] = get_attrs([user, server, jid, group, nick, subs], AttrL),
+    ?INFO_MSG("TEST", []),
     R = case catch add_rosteritem(User, Server, Jid, Group, Nick, Subs) of
             ok ->
                 0;
@@ -478,8 +479,8 @@ subscribe_odbc(Jid1, Jid2, Name, Subs, Group) ->
            Jid1#jid.lserver,
            [["delete from rosterusers where username = '",ELU,"' and jid='", EJID, "';"],
             ["delete from rostergroups where username = '",ELU,"' and jid='", EJID, "';"],
-            ["insert into rosterusers (username, jid, nick, subscription, ask, server, type) "
-             "values ('",ELU,"','",EJID,"','",ENick,"','",ESub,"','N','N','item');"],
+            ["insert into rosterusers (username, jid, nick, subscription, ask, server, type, subscribe, askmessage) "
+             "values ('",ELU,"','",EJID,"','",ENick,"','",ESub,"','N','N','item','','');"],
             ["insert into rostergroups (username, jid, grp) "
              "values ('",ELU,"','",EJID,"','",EGroup,"');"]]) of
         {atomic, ok} ->
