@@ -90,7 +90,6 @@ stop(_Host) ->
 %                        {nick, String}, {subs, String}]           Integer
 handler(_State, {call, add_rosteritem, [{struct, AttrL}]}) ->
     [User, Server, Jid, Group, Nick, Subs] = get_attrs([user, server, jid, group, nick, subs], AttrL),
-    ?INFO_MSG("TEST", []),
     R = case catch add_rosteritem(User, Server, Jid, Group, Nick, Subs) of
             ok ->
                 0;
