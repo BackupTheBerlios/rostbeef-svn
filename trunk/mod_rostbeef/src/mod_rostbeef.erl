@@ -126,6 +126,17 @@ handler(_State, {call, link_contacts, [{struct, AttrL}]}) ->
         end,
     {false, {response, [R]}};
 
+% online_users  struct[{server, String}]           Integer
+handler(_State, {call, online_users, [{struct, AttrL}]}) ->
+    [Server] = get_attrs([server], AttrL),
+    OnlineUsers = case catch ejabberd_sm:get_vh_session_list(Server) of
+          {'EXIT', _Reason} ->
+              "500", "Internal Server Error";
+          Users ->
+              integer_to_list(length(OnlineUsers))
+        end,
+    {false, {response, [OnlineUsers]}};
+
 % delete_rosteritem  struct[{user, String}, {server, String},
 %                           {jid, String}]                         Integer
 handler(_State, {call, delete_rosteritem, [{struct, AttrL}]}) ->
